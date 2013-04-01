@@ -79,7 +79,6 @@ void write_device_info_flash(device_info *dev);
 
 #define EXPAND(NAME) #NAME
 #define TARGET(NAME) EXPAND(NAME)
-#define DEFAULT_CMDLINE "mem=100M console=null";
 
 #ifdef MEMBASE
 #define EMMC_BOOT_IMG_HEADER_ADDR (0xFF000+(MEMBASE))
@@ -139,6 +138,29 @@ extern int emmc_recovery_init(void);
 #if NO_KEYPAD_DRIVER
 extern int fastboot_trigger(void);
 #endif
+
+static void update_ker_tags_rdisk_addr(struct boot_img_hdr *hdr)
+{
+	/* overwrite the destination of specified for the project */
+	/*
+	 * Update the value to sane values only when the boot image
+	 * header does not have sane values, this is added to make sure
+	 * that we always use values from boot.img header and use the
+	 * force values when boot image header has default values.
+	 */
+#ifdef ABOOT_FORCE_KERNEL_ADDR
+	if (hdr->kernel_addr == ABOOT_DEFAULT_KERNEL_ADDR)
+		hdr->kernel_addr = ABOOT_FORCE_KERNEL_ADDR;
+#endif
+#ifdef ABOOT_FORCE_RAMDISK_ADDR
+	if (hdr->ramdisk_addr == ABOOT_DEFAULT_RAMDISK_ADDR)
+		hdr->ramdisk_addr = ABOOT_FORCE_RAMDISK_ADDR;
+#endif
+#ifdef ABOOT_FORCE_TAGS_ADDR
+	if (hdr->tags_addr == ABOOT_DEFAULT_TAGS_ADDR)
+		hdr->tags_addr = ABOOT_FORCE_TAGS_ADDR;
+#endif
+}
 
 static void ptentry_to_tag(unsigned **ptr, struct ptentry *ptn)
 {
@@ -581,7 +603,6 @@ int boot_linux_from_mmc(void)
 	struct boot_img_hdr *uhdr;
 	unsigned offset = 0;
 	unsigned long long ptn = 0;
-	const char *cmdline;
 	int index = INVALID_PTN;
 
 	unsigned char *image_addr = 0;
@@ -650,6 +671,13 @@ int boot_linux_from_mmc(void)
 		page_size = hdr->page_size;
 		page_mask = page_size - 1;
 	}
+
+	/*
+	 * Update the kernel/ramdisk/tags address if the boot image header
+	 * has default values, these default values come from mkbootimg when
+	 * the boot image is flashed using fastboot flash:raw
+	 */
+	update_ker_tags_rdisk_addr(hdr);
 
 	/* Get virtual addresses since the hdr saves physical addresses. */
 	hdr->kernel_addr = VA((addr_t)(hdr->kernel_addr));
@@ -857,14 +885,8 @@ int boot_linux_from_mmc(void)
 
 unified_boot:
 
-	if(hdr->cmdline[0]) {
-		cmdline = (char*) hdr->cmdline;
-	} else {
-		cmdline = DEFAULT_CMDLINE;
-	}
-
 	boot_linux((void *)hdr->kernel_addr, (void *)hdr->tags_addr,
-		   (const char *)cmdline, board_machtype(),
+		   (const char *)hdr->cmdline, board_machtype(),
 		   (void *)hdr->ramdisk_addr, hdr->ramdisk_size);
 
 	return 0;
@@ -876,7 +898,6 @@ int boot_linux_from_flash(void)
 	struct ptentry *ptn;
 	struct ptable *ptable;
 	unsigned offset = 0;
-	const char *cmdline;
 
 	unsigned char *image_addr = 0;
 	unsigned kernel_actual;
@@ -937,6 +958,13 @@ int boot_linux_from_flash(void)
 		dprintf(CRITICAL, "ERROR: Invalid boot image pagesize. Device pagesize: %d, Image pagesize: %d\n",page_size,hdr->page_size);
 		return -1;
 	}
+
+	/*
+	 * Update the kernel/ramdisk/tags address if the boot image header
+	 * has default values, these default values come from mkbootimg when
+	 * the boot image is flashed using fastboot flash:raw
+	 */
+	update_ker_tags_rdisk_addr(hdr);
 
 	/* Get virtual addresses since the hdr saves physical addresses. */
 	hdr->kernel_addr = VA(hdr->kernel_addr);
@@ -1086,17 +1114,10 @@ int boot_linux_from_flash(void)
 	}
 continue_boot:
 
-	if(hdr->cmdline[0]) {
-		cmdline = (char*) hdr->cmdline;
-	} else {
-		cmdline = DEFAULT_CMDLINE;
-	}
-	dprintf(INFO, "cmdline = '%s'\n", cmdline);
-
 	/* TODO: create/pass atags to kernel */
 
 	boot_linux((void *)hdr->kernel_addr, (void *)hdr->tags_addr,
-		   (const char *)cmdline, board_machtype(),
+		   (const char *)hdr->cmdline, board_machtype(),
 		   (void *)hdr->ramdisk_addr, hdr->ramdisk_size);
 
 	return 0;
@@ -1358,16 +1379,12 @@ void cmd_boot(const char *arg, void *data, unsigned sz)
 	kernel_actual = ROUND_TO_PAGE(hdr->kernel_size, page_mask);
 	ramdisk_actual = ROUND_TO_PAGE(hdr->ramdisk_size, page_mask);
 
-	/* overwrite the destination of specified for the project */
-#ifdef ABOOT_FORCE_KERNEL_ADDR
-	hdr->kernel_addr = ABOOT_FORCE_KERNEL_ADDR;
-#endif
-#ifdef ABOOT_FORCE_RAMDISK_ADDR
-	hdr->ramdisk_addr = ABOOT_FORCE_RAMDISK_ADDR;
-#endif
-#ifdef ABOOT_FORCE_TAGS_ADDR
-	hdr->tags_addr = ABOOT_FORCE_TAGS_ADDR;
-#endif
+	/*
+	 * Update the kernel/ramdisk/tags address if the boot image header
+	 * has default values, these default values come from mkbootimg when
+	 * the boot image is flashed using fastboot flash:raw
+	 */
+	update_ker_tags_rdisk_addr(hdr);
 
 	/* Get virtual addresses since the hdr saves physical addresses. */
 	hdr->kernel_addr = VA(hdr->kernel_addr);
