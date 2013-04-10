@@ -327,7 +327,6 @@ void target_uart_init(void)
 	case LINUX_MACHTYPE_8930_CDP:
 	case LINUX_MACHTYPE_8930_MTP:
 	case LINUX_MACHTYPE_8930_FLUID:
-	case LINUX_MACHTYPE_8930_EVT:
 
 		uart_dm_init(5, 0x16400000, 0x16440000);
 		break;
@@ -363,8 +362,6 @@ void target_uart_init(void)
 	default:
 		dprintf(CRITICAL, "uart gsbi not defined for target: %d\n",
 			target_id);
-
-		ASSERT(0);
 	}
 }
 
