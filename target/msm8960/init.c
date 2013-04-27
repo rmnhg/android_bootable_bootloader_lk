@@ -103,9 +103,8 @@ void target_init(void)
 
 	dprintf(INFO, "Board info:\n\
 	platform = 0x%X, platform_hw = 0x%X,\n\
-	platform_subtype = 0x%X, pmic_type = 0x%X, pmic_version = 0x%X\n",
-	board_platform_id(), board_hardware_id(), board_platform_subid(), 
-	board_pmic_type(), board_pmic_ver());
+	platform_subtype = 0x%X\n",
+	board_platform_id(), board_hardware_id(), board_platform_subid());
 	
 	/* Initialize PMIC driver */
 	pmic.read = (pm8921_read_func) & pa1_ssbi2_read_bytes;

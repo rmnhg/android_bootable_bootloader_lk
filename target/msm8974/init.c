@@ -46,6 +46,7 @@
 #include <partition_parser.h>
 #include <scm.h>
 #include <platform/clock.h>
+#include <stdlib.h>
 
 extern  bool target_use_signed_kernel(void);
 static void set_sdc_power_ctrl();
@@ -208,13 +209,20 @@ unsigned board_machtype(void)
 
 /* Do any target specific intialization needed before entering fastboot mode */
 #ifdef SSD_ENABLE
-static uint32_t  buffer[SSD_PARTITION_SIZE] __attribute__ ((aligned(32)));
 static void ssd_load_keystore_from_emmc()
 {
 	uint64_t           ptn    = 0;
 	int                index  = -1;
 	uint32_t           size   = SSD_PARTITION_SIZE;
 	int                ret    = -1;
+
+	uint32_t *buffer = (uint32_t *)memalign(CACHE_LINE,
+								   ROUNDUP(SSD_PARTITION_SIZE, CACHE_LINE));
+
+	if (!buffer) {
+		dprintf(CRITICAL, "Error Allocating memory for SSD buffer\n");
+		ASSERT(0);
+	}
 
 	index = partition_get_index("ssd");
 
@@ -232,6 +240,8 @@ static void ssd_load_keystore_from_emmc()
 	ret = scm_protect_keystore((uint32_t *)&buffer[0],size);
 	if(ret != 0)
 		dprintf(CRITICAL,"ERROR: scm_protect_keystore Failed");
+
+	free(buffer);
 }
 #endif
 
@@ -449,9 +459,28 @@ void shutdown_device()
  */
 void target_mmc_caps(struct mmc_host *host)
 {
+	uint32_t soc_ver = 0;
+
+	soc_ver = board_soc_version();
+
+	/*
+	 * 8974 v1 fluid devices, have a hardware bug
+	 * which limits the bus width to 4 bit.
+	 */
+	switch(board_hardware_id())
+	{
+		case HW_PLATFORM_FLUID:
+			if (soc_ver >= BOARD_SOC_VERSION2)
+				host->caps.bus_width = MMC_BOOT_BUS_WIDTH_8_BIT;
+			else
+				host->caps.bus_width = MMC_BOOT_BUS_WIDTH_4_BIT;
+			break;
+		default:
+			host->caps.bus_width = MMC_BOOT_BUS_WIDTH_8_BIT;
+	};
+
 	host->caps.ddr_mode = 1;
 	host->caps.hs200_mode = 1;
-	host->caps.bus_width = MMC_BOOT_BUS_WIDTH_8_BIT;
 	host->caps.hs_clk_rate = MMC_CLK_96MHZ;
 }
 

@@ -35,6 +35,7 @@
 #include <arch/arm.h>
 #include <dev/udc.h>
 #include <string.h>
+#include <stdlib.h>
 #include <kernel/thread.h>
 #include <arch/ops.h>
 
@@ -131,6 +132,30 @@ struct atag_ptbl_entry
 	unsigned flags;
 };
 
+/*
+ * Partition info, required to be published
+ * for fastboot
+ */
+struct getvar_partition_info {
+	const char part_name[MAX_GPT_NAME_SIZE]; /* Partition name */
+	char getvar_size[MAX_GET_VAR_NAME_SIZE]; /* fastboot get var name for size */
+	char getvar_type[MAX_GET_VAR_NAME_SIZE]; /* fastboot get var name for type */
+	char size_response[MAX_RSP_SIZE];        /* fastboot response for size */
+	char type_response[MAX_RSP_SIZE];        /* fastboot response for type */
+};
+
+/*
+ * Right now, we are publishing the info for only
+ * three partitions
+ */
+struct getvar_partition_info part_info[] =
+{
+	{ "system"  , "partition-size:", "partition-type:", "", "ext4" },
+	{ "userdata", "partition-size:", "partition-type:", "", "ext4" },
+	{ "cache"   , "partition-size:", "partition-type:", "", "ext4" },
+};
+
+char max_download_size[MAX_RSP_SIZE];
 char sn_buf[13];
 
 extern int emmc_recovery_init(void);
@@ -500,9 +525,9 @@ unsigned page_mask = 0;
 
 #define ROUND_TO_PAGE(x,y) (((x) + (y)) & (~(y)))
 
-static unsigned char buf[4096]; //Equal to max-supported pagesize
+BUF_DMA_ALIGN(buf, 4096); //Equal to max-supported pagesize
 #if DEVICE_TREE
-static unsigned char dt_buf[4096];
+BUF_DMA_ALIGN(dt_buf, 4096);
 #endif
 
 static void boot_elf(unsigned long long ptn)
@@ -517,7 +542,6 @@ static void boot_elf(unsigned long long ptn)
     sonyelf_boot *boot = malloc(sizeof(sonyelf_boot));
     unsigned int last_offset, last_msize;
     unsigned tags_addr;
-    int elf_has_cmdline = 0;
 
     mmc_read(ptn, (void *)ehdr, page_size);
     ehdr += sizeof(sonyelf_hdr);
@@ -552,7 +576,6 @@ static void boot_elf(unsigned long long ptn)
         {
             if(sect->flags == CMDLINE_SECTION)
             {
-             	elf_has_cmdline = 1;
                 boot->cmdline_offset = sect->offset;
                 boot->cmdline_msize = sect->msize;
             }
@@ -583,15 +606,10 @@ static void boot_elf(unsigned long long ptn)
     memmove((void *)boot->kernel_paddr, (char *)(elf_addr + boot->kernel_offset), boot->kernel_msize);
     memmove((void *)boot->ramdisk_paddr, (char *)(elf_addr + boot->ramdisk_offset), boot->ramdisk_msize);
 
-    if(elf_has_cmdline == 1)
-    {
-     	elf_addr += boot->cmdline_offset;
-        snprintf(boot->cmdline, (boot->cmdline_msize + 1), "%s", elf_addr);
-        cmdline = (char*)boot->cmdline;
-    }else{
-	cmdline = DEFAULT_CMDLINE;
-    }
- 
+	elf_addr += boot->cmdline_offset;
+	snprintf(boot->cmdline, (boot->cmdline_msize + 1), "%s", elf_addr);
+	cmdline = (char*)boot->cmdline;
+
     boot_linux((void *)boot->kernel_paddr, (unsigned *)tags_addr,
                   (const char *)cmdline, board_machtype(),
                   (void *)boot->ramdisk_paddr, boot->ramdisk_msize);
@@ -1123,7 +1141,7 @@ continue_boot:
 	return 0;
 }
 
-unsigned char info_buf[4096];
+BUF_DMA_ALIGN(info_buf, 4096);
 void write_device_info_mmc(device_info *dev)
 {
 	struct device_info *info = (void*) info_buf;
@@ -1334,20 +1352,8 @@ int copy_dtb(uint8_t *boot_image_start)
 		memmove((void*) hdr->tags_addr,
 				boot_image_start + dt_image_offset +  dt_entry_ptr->offset,
 				dt_entry_ptr->size);
-	} else {
-		/*
-		 * If appended dev tree is found, update the atags with
-		 * memory address to the DTB appended location on RAM.
-		 * Else update with the atags address in the kernel header
-		 */
-		void *dtb;
-		dtb = dev_tree_appended((void *)hdr->kernel_addr,
-					(void *)hdr->tags_addr);
-		if (!dtb) {
-			dprintf(CRITICAL, "ERROR: Appended Device Tree Blob not found\n");
-			return -1;
-		}
-	}
+	} else
+		return -1;
 
 	/* Everything looks fine. Return success. */
 	return 0;
@@ -1360,6 +1366,8 @@ void cmd_boot(const char *arg, void *data, unsigned sz)
 	unsigned ramdisk_actual;
 	struct boot_img_hdr *hdr;
 	char *ptr = ((char*) data);
+	int ret = 0;
+	uint8_t dtb_copied = 0;
 
 	if (sz < sizeof(hdr)) {
 		fastboot_fail("invalid bootimage header");
@@ -1397,15 +1405,31 @@ void cmd_boot(const char *arg, void *data, unsigned sz)
 		return;
 	}
 
-	memmove((void*) hdr->kernel_addr, ptr + page_size, hdr->kernel_size);
-	memmove((void*) hdr->ramdisk_addr, ptr + page_size + kernel_actual, hdr->ramdisk_size);
-
 #if DEVICE_TREE
 	/* find correct dtb and copy it to right location */
-	if(copy_dtb(data))
-	{
-		fastboot_fail("dtb not found");
-		return;
+	ret = copy_dtb(data);
+
+	dtb_copied = !ret ? 1 : 0;
+#endif
+
+	/* Load ramdisk & kernel */
+	memmove((void*) hdr->ramdisk_addr, ptr + page_size + kernel_actual, hdr->ramdisk_size);
+	memmove((void*) hdr->kernel_addr, ptr + page_size, hdr->kernel_size);
+
+#if DEVICE_TREE
+	/*
+	 * If dtb is not found look for appended DTB in the kernel.
+	 * If appended dev tree is found, update the atags with
+	 * memory address to the DTB appended location on RAM.
+	 * Else update with the atags address in the kernel header
+	 */
+	if (!dtb_copied) {
+		void *dtb;
+		dtb = dev_tree_appended((void *)hdr->kernel_addr, (void *)hdr->tags_addr);
+		if (!dtb) {
+			fastboot_fail("dtb not found");
+			return;
+		}
 	}
 #endif
 
@@ -1444,8 +1468,8 @@ void cmd_erase(const char *arg, void *data, unsigned sz)
 
 void cmd_erase_mmc(const char *arg, void *data, unsigned sz)
 {
+	BUF_DMA_ALIGN(out, 512);
 	unsigned long long ptn = 0;
-	unsigned int out[512] = {0};
 	int index = INVALID_PTN;
 
 	index = partition_get_index(arg);
@@ -1821,15 +1845,16 @@ void cmd_oem_devinfo(const char *arg, void *data, unsigned sz)
 	fastboot_okay("");
 }
 
+void cmd_preflash(const char *arg, void *data, unsigned sz)
+{
+	fastboot_okay("");
+}
+
 static int get_keystate(int gpio)
 {
-
-    uint8_t status;
-
-    pm8921_gpio_get(gpio, &status);
-
-    return status;
-
+	uint8_t status;
+	pm8921_gpio_get(gpio, &status);
+	return status;
 }
 
 void splash_screen ()
@@ -1859,6 +1884,65 @@ void splash_screen ()
 				}
 			}
 		}
+	}
+}
+
+/* Get the size from partiton name */
+static void get_partition_size(const char *arg, char *response)
+{
+	uint64_t ptn = 0;
+	uint64_t size;
+	int index = INVALID_PTN;
+
+	index = partition_get_index(arg);
+
+	if (index == INVALID_PTN)
+	{
+		dprintf(CRITICAL, "Invalid partition index\n");
+		return;
+	}
+
+	ptn = partition_get_offset(index);
+
+	if(!ptn)
+	{
+		dprintf(CRITICAL, "Invalid partition name %s\n", arg);
+		return;
+	}
+
+	size = partition_get_size(index);
+
+	snprintf(response, MAX_RSP_SIZE, "\t 0x%llx", size);
+	return;
+}
+
+/*
+ * Publish the partition type & size info
+ * fastboot getvar will publish the required information.
+ * fastboot getvar partition_size:<partition_name>: partition size in hex
+ * fastboot getvar partition_type:<partition_name>: partition type (ext/fat)
+ */
+static void publish_getvar_partition_info(struct getvar_partition_info *info, uint8_t num_parts)
+{
+	uint8_t i;
+
+	for (i = 0; i < num_parts; i++) {
+		get_partition_size(info[i].part_name, info[i].size_response);
+
+		if (strlcat(info[i].getvar_size, info[i].part_name, MAX_GET_VAR_NAME_SIZE) >= MAX_GET_VAR_NAME_SIZE)
+		{
+			dprintf(CRITICAL, "partition size name truncated\n");
+			return;
+		}
+		if (strlcat(info[i].getvar_type, info[i].part_name, MAX_GET_VAR_NAME_SIZE) >= MAX_GET_VAR_NAME_SIZE)
+		{
+			dprintf(CRITICAL, "partition type name truncated\n");
+			return;
+		}
+
+		/* publish partition size & type info */
+		fastboot_publish((const char *) info[i].getvar_size, (const char *) info[i].size_response);
+		fastboot_publish((const char *) info[i].getvar_type, (const char *) info[i].type_response);
 	}
 }
 
@@ -1975,6 +2059,8 @@ void aboot_init(const struct app_descriptor *app)
 
 fastboot:
 
+	sz = target_get_max_flash_size();
+
 	target_fastboot_init();
 
 	if(!usb_init)
@@ -1999,11 +2085,15 @@ fastboot:
 	fastboot_register("reboot-recovery", cmd_reboot_recovery);
 	fastboot_register("oem unlock", cmd_oem_unlock);
 	fastboot_register("oem device-info", cmd_oem_devinfo);
+	fastboot_register("preflash", cmd_preflash);
 	fastboot_publish("product", TARGET(BOARD));
 	fastboot_publish("kernel", "lk");
 	fastboot_publish("serialno", sn_buf);
+	publish_getvar_partition_info(part_info, ARRAY_SIZE(part_info));
+	/* Max download size supported */
+	snprintf(max_download_size, MAX_RSP_SIZE, "\t0x%x", sz);
+	fastboot_publish("max-download-size", (const char *) max_download_size);
 	partition_dump();
-	sz = target_get_max_flash_size();
 	fastboot_init(target_get_scratch_address(), sz);
 	udc_start();
 }
