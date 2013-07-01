@@ -112,6 +112,7 @@ void target_init(void)
 	case MSM8960AB:
 	case APQ8060AB:
 	case MSM8260AB:
+	case MSM8260A:
 	case MSM8660AB:
 		msm8960_keypad_init();
 		break;
