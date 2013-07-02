@@ -272,6 +272,42 @@ void target_serialno(unsigned char *buf)
 	}
 }
 
+void target_imei(unsigned char *buf)
+{
+#ifdef SONY_IMEI
+	unsigned char *imei;
+	unsigned long long size;
+
+	imei = (unsigned char *)target_get_scratch_address();
+
+	int index = 0;
+	unsigned long long ptn = 0;
+
+	index = partition_get_index("TA");
+	ptn = partition_get_offset(index);
+	size = partition_get_size(index);
+
+	mmc_read(ptn, (void*)imei, size);
+
+	imei += (SONY_IMEI);
+
+	if(memcmp(imei, "35", 2) == 0)
+	{
+		snprintf((char *)buf, 18, "%s", imei);
+	}
+	else
+	{
+		imei += 0x10;
+		snprintf((char *)buf, 18, "%s", imei);
+	}
+#else
+	// Funtion should not be called if SONY_IMEI isn't defined
+	// this is just to guard it in case for some unknown reason
+	// it is called.
+	buf = NULL;
+#endif
+}
+
 void target_battery_charging_enable(unsigned enable, unsigned disconnect)
 {
 }
