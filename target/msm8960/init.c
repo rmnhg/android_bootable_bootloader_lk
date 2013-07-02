@@ -248,8 +248,27 @@ void target_serialno(unsigned char *buf)
 {
 	unsigned int serialno;
 	if (target_is_emmc_boot()) {
+#ifdef SONY_SERIAL
+		unsigned char *serial;
+		unsigned long long size;
+
+		serial = (unsigned char *)target_get_scratch_address();
+
+		int index = 0;
+		unsigned long long ptn = 0;
+
+		index = partition_get_index("TA");
+		ptn = partition_get_offset(index);
+		size = partition_get_size(index);
+
+		mmc_read(ptn, (void*)serial, size);
+
+		serial += (SONY_SERIAL);
+		snprintf((char *)buf, 11, "%x", serial);
+#else
 		serialno = mmc_get_psn();
 		snprintf((char *)buf, 13, "%x", serialno);
+#endif
 	}
 }
 
