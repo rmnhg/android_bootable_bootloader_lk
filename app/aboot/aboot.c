@@ -91,16 +91,19 @@ void write_device_info_flash(device_info *dev);
 #ifdef XPERIA_2012
 static const char *boot = "FOTAKernel";
 static const char *recovery = "kernel";
+static int xperia = 1;
 #elif defined(XPERIA_2013)
 static const char *boot = "FOTAKernel";
 static const char *recovery = "boot";
+static int xperia = 1;
 #else
 static const char *boot = "boot";
 static const char *recovery = "recovery";
+static int xperia = 0;
 #endif
 
 static const char *emmc_cmdline = " androidboot.emmc=true";
-static const char *imei_cmdline = "oemandroidboot.imei="
+static const char *imei_cmdline = "oemandroidboot.imei=";
 static const char *usb_sn_cmdline = " androidboot.serialno=";
 static const char *androidboot_mode = " androidboot.mode=";
 static const char *loglevel         = " quiet";
@@ -596,7 +599,7 @@ int boot_linux_from_mmc(void)
 	else {
 		index = partition_get_index(recovery);
 		ptn = partition_get_offset(index);
-		if(defined(XPERIA_2012)||defined(XPERIAL_2013))
+		if(xperia == 1)
 			ptn = (ptn + 0x100000);
 		if(ptn == 0) {
 			dprintf(CRITICAL, "ERROR: No recovery partition found\n");
@@ -1450,14 +1453,14 @@ void cmd_flash_mmc_img(const char *arg, void *data, unsigned sz)
 		int flash_recovery = 0;
 		const char *arg2;
 		arg2 = arg;
-		if(defined(XPERIA_2012)||defined(XPERIA_2013)) {
-			if(!strcmp(arg, "boot")
+		if(xperia == 1) {
+			if(!strcmp(arg, "boot"))
 				arg = boot;
-			if(!strcmp(arg, "recovery") {
+			if(!strcmp(arg, "recovery")) {
 				flash_recovery = 1;
 				arg = recovery;
 			}
-			if(!strcmp(arg, "bootloader")
+			if(!strcmp(arg, "bootloader"))
 				arg = recovery;
 		}
 
