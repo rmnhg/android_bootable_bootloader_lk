@@ -1897,12 +1897,21 @@ static void publish_getvar_partition_info(struct getvar_partition_info *info, ui
 	}
 }
 
+/* Work around for faulty keypad driver with Xperia devices */
+static int get_keystate(int gpio)
+{
+	uint8_t status;
+	pm8921_gpio_get(gpio, &status);
+	return status;
+}
+
 void aboot_init(const struct app_descriptor *app)
 {
 	unsigned reboot_mode = 0;
 	unsigned usb_init = 0;
 	unsigned sz = 0;
 	bool boot_into_fastboot = false;
+	time_t start_timer;
 
 	/* Setup page size information for nand/emmc reads */
 	if (target_is_emmc_boot())
@@ -1926,29 +1935,55 @@ void aboot_init(const struct app_descriptor *app)
 	dprintf(SPEW,"serial number: %s\n",sn_buf);
 	surf_udc_device.serialno = sn_buf;
 
-	/* Check if we should do something other than booting up */
-	if (keys_get_state(KEY_VOLUMEUP) && keys_get_state(KEY_VOLUMEDOWN))
-	{
-		dprintf(ALWAYS,"dload mode key sequence detected");
-		if (set_download_mode())
+#ifdef SONY_IMEI
+	target_imei((unsigned char *) imei_buf);
+#endif
+
+	start_timer = current_time();
+
+	while (true) {
+
+#ifdef SONY_VOLDOWN
+		if (get_keystate((SONY_VOLUP)) != 0)
 		{
-			dprintf(CRITICAL,"dload mode not supported by target");
-		}
-		else
-		{
-			reboot_device(0);
-			dprintf(CRITICAL,"Failed to reboot into dload mode");
-		}
-		boot_into_fastboot = true;
-	}
-	if (!boot_into_fastboot)
-	{
-		if (keys_get_state(KEY_HOME) || keys_get_state(KEY_VOLUMEUP))
 			boot_into_recovery = 1;
-		if (!boot_into_recovery &&
-			(keys_get_state(KEY_BACK) || keys_get_state(KEY_VOLUMEDOWN)))
+			break;
+		}
+		if (!boot_into_recovery && get_keystate((SONY_VOLDOWN)))
+		{
 			boot_into_fastboot = true;
+			break;
+		}
+
+#else
+		/* Check if we should do something other than booting up */
+		if (keys_get_state(KEY_VOLUMEUP) && keys_get_state(KEY_VOLUMEDOWN))
+		{
+			dprintf(ALWAYS,"dload mode key sequence detected");
+			if (set_download_mode())
+			{
+				dprintf(CRITICAL,"dload mode not supported by target");
+			}
+			else
+			{
+				reboot_device(0);
+				dprintf(CRITICAL,"Failed to reboot into dload mode");
+			}
+			boot_into_fastboot = true;
+		}
+		if (!boot_into_fastboot)
+		{
+			if (keys_get_state(KEY_HOME) || keys_get_state(KEY_VOLUMEUP))
+				boot_into_recovery = 1;
+			if (!boot_into_recovery &&
+				(keys_get_state(KEY_BACK) || keys_get_state(KEY_VOLUMEDOWN)))
+				boot_into_fastboot = true;
+		}
+#endif
+		if ((current_time() - start_timer) >= 5000)
+			break;
 	}
+
 	#if NO_KEYPAD_DRIVER
 	if (fastboot_trigger())
 		boot_into_fastboot = true;
