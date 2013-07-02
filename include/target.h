@@ -44,6 +44,7 @@ unsigned* target_atag_mem(unsigned* ptr);
 void target_battery_charging_enable(unsigned enable, unsigned disconnect);
 unsigned target_pause_for_battery_charge(void);
 unsigned target_baseband(void);
+void target_imei(unsigned char *buf);
 void target_serialno(unsigned char *buf);
 void target_fastboot_init(void);
 struct mmc_device *target_mmc_device();
