@@ -88,6 +88,17 @@ void write_device_info_flash(device_info *dev);
 #define RECOVERY_MODE   0x77665502
 #define FASTBOOT_MODE   0x77665500
 
+#ifdef XPERIA_2012
+static const char *boot = "FOTAKernel";
+static const char *recovery = "kernel";
+#elif defined(XPERIA_2013)
+static const char *boot = "FOTAKernel";
+static const char *recovery = "boot";
+#else
+static const char *boot = "boot";
+static const char *recovery = "recovery";
+#endif
+
 static const char *emmc_cmdline = " androidboot.emmc=true";
 static const char *imei_cmdline = "oemandroidboot.imei="
 static const char *usb_sn_cmdline = " androidboot.serialno=";
@@ -575,7 +586,7 @@ int boot_linux_from_mmc(void)
 		goto unified_boot;
 	}
 	if (!boot_into_recovery) {
-		index = partition_get_index("boot");
+		index = partition_get_index(boot);
 		ptn = partition_get_offset(index);
 		if(ptn == 0) {
 			dprintf(CRITICAL, "ERROR: No boot partition found\n");
@@ -583,8 +594,10 @@ int boot_linux_from_mmc(void)
 		}
 	}
 	else {
-		index = partition_get_index("recovery");
+		index = partition_get_index(recovery);
 		ptn = partition_get_offset(index);
+		if(defined(XPERIA_2012)||defined(XPERIAL_2013))
+			ptn = (ptn + 0x100000);
 		if(ptn == 0) {
 			dprintf(CRITICAL, "ERROR: No recovery partition found\n");
                     return -1;
@@ -1387,9 +1400,22 @@ void cmd_erase_mmc(const char *arg, void *data, unsigned sz)
 	BUF_DMA_ALIGN(out, 512);
 	unsigned long long ptn = 0;
 	int index = INVALID_PTN;
+	int recovery = 0;
+
+	if(!strcmp(arg, "boot"))
+		arg = boot;
+	if(!strcmp(arg, "recovery")) {
+		arg = recovery;
+		recovery = 1;
+	}
+	if(!strcmp(arg, "bootloader")) {
+		arg = recovery;
+	}
 
 	index = partition_get_index(arg);
 	ptn = partition_get_offset(index);
+	if(recovery == 1)
+		ptn = ptn + 0x100000;
 
 	if(ptn == 0) {
 		fastboot_fail("Partition table doesn't exist\n");
@@ -1421,14 +1447,32 @@ void cmd_flash_mmc_img(const char *arg, void *data, unsigned sz)
 	}
 	else
 	{
+		int flash_recovery = 0;
+		const char *arg2;
+		arg2 = arg;
+		if(defined(XPERIA_2012)||defined(XPERIA_2013)) {
+			if(!strcmp(arg, "boot")
+				arg = boot;
+			if(!strcmp(arg, "recovery") {
+				flash_recovery = 1;
+				arg = recovery;
+			}
+			if(!strcmp(arg, "bootloader")
+				arg = recovery;
+		}
+
 		index = partition_get_index(arg);
 		ptn = partition_get_offset(index);
+
+		if(flash_recovery == 1)
+			ptn = (ptn + 0x100000);
+
 		if(ptn == 0) {
 			fastboot_fail("partition table doesn't exist");
 			return;
 		}
 
-		if (!strcmp(arg, "boot") || !strcmp(arg, "recovery")) {
+		if (!strcmp(arg2, "boot") || !strcmp(arg2, "recovery")) {
 			if (memcmp((void *)data, BOOT_MAGIC, BOOT_MAGIC_SIZE)) {
 				fastboot_fail("image is not a boot image");
 				return;
@@ -1436,6 +1480,15 @@ void cmd_flash_mmc_img(const char *arg, void *data, unsigned sz)
 		}
 
 		size = partition_get_size(index);
+
+		if(!strcmp(arg, recovery)) {
+			if(flash_recovery) {
+				size = size - 0x100000;
+			} else {
+				size = 0x100000;
+			}
+		}
+
 		if (ROUND_TO_PAGE(sz,511) > size) {
 			fastboot_fail("size too large");
 			return;
@@ -1806,6 +1859,9 @@ static void get_partition_size(const char *arg, char *response)
 	}
 
 	size = partition_get_size(index);
+
+	if(!strcmp(arg, recovery))
+		size = size - 0x100000;
 
 	snprintf(response, MAX_RSP_SIZE, "\t 0x%llx", size);
 	return;
