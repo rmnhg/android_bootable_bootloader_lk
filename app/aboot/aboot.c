@@ -89,11 +89,15 @@ void write_device_info_flash(device_info *dev);
 #define FASTBOOT_MODE   0x77665500
 
 static const char *emmc_cmdline = " androidboot.emmc=true";
+static const char *imei_cmdline = "oemandroidboot.imei="
 static const char *usb_sn_cmdline = " androidboot.serialno=";
 static const char *androidboot_mode = " androidboot.mode=";
 static const char *loglevel         = " quiet";
 static const char *battchg_pause = " androidboot.mode=charger";
 static const char *auth_kernel = " androidboot.authorized_kernel=true";
+static const char *bl_cmdline = " androidboot.bootloader=lk";
+static const char *hw_cmdline = " androidboot.hardware=qcom";
+static const char *version_cmdline = " androidboot.lkversion=20130329"; // Bump this only when needed
 
 static const char *baseband_apq     = " androidboot.baseband=apq";
 static const char *baseband_msm     = " androidboot.baseband=msm";
@@ -151,7 +155,7 @@ struct getvar_partition_info part_info[] =
 
 char max_download_size[MAX_RSP_SIZE];
 char sn_buf[13];
-
+char imei_buf[18];
 extern int emmc_recovery_init(void);
 
 #if NO_KEYPAD_DRIVER
@@ -200,6 +204,15 @@ unsigned char *update_cmdline(const char * cmdline)
 
 	cmdline_len += strlen(usb_sn_cmdline);
 	cmdline_len += strlen(sn_buf);
+
+	cmdline_len += strlen(bl_cmdline);
+	cmdline_len += strlen(hw_cmdline);
+	cmdline_len += strlen(version_cmdline);
+
+#ifdef SONY_IMEI
+	cmdline_len += strlen(imei_cmdline);
+	cmdline_len += strlen(imei_buf);
+#endif
 
 	if (boot_into_ffbm) {
 		cmdline_len += strlen(androidboot_mode);
@@ -281,6 +294,30 @@ unsigned char *update_cmdline(const char * cmdline)
 		if (have_cmdline) --dst;
 		have_cmdline = 1;
 		while ((*dst++ = *src++));
+
+#ifdef SONY_IMEI
+		src = imei_cmdline;
+		if (have_cmdline) --dst;
+		have_cmdline = 1;
+		while ((*dst++ = *src++));
+		src = imei_buf;
+		if (have_cmdline) --dst;
+		have_cmdline = 1;
+		while ((*dst++ = *src++));
+#endif
+
+		src = hw_cmdline;
+		if (have_cmdline) --dst;
+		while ((*dst++ = *src++));
+
+		src = bl_cmdline;
+		if (have_cmdline) --dst;
+		while ((*dst++ = *src++));
+
+		src = version_cmdline;
+		if (have_cmdline) --dst;
+		while ((*dst++ = *src++));
+
 
 		if (boot_into_ffbm) {
 			src = androidboot_mode;
