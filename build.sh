@@ -6,10 +6,11 @@ function usage()
 	Sony LK build script
 	Usage: sh build.sh <platform> <releasetype> <outfile>
 
-	platform: Device codename that you are building for [available: mint, yuga, pollux_windy]
+	platform: Device codename that you are building for [available: mint, yuga, pollux_windy, odin]
 			mint: Sony Xperia T (LT30p)
-			yuga: Sony Xperia T (SO-02E)
+			yuga: Sony Xperia Z (C6603)
 			pollux_windy: Sony Xperia Tablet Z (SGP311)
+			odin: Sony Xperia ZL (C6503)
 
 	release type: What type of build indicates how it is packaged [available: debug]
 			debug: Builds and packs the binary to be flashed with fastboot
@@ -44,6 +45,13 @@ function build_platform()
     fi
 
     if [ "yuga" == "$1" ]; then
+        uses_rpm=0
+        loadaddr="0x80208000"
+        platform_type="$1"
+        return
+    fi
+
+    if [ "odin" == "$1" ]; then
         uses_rpm=0
         loadaddr="0x80208000"
         platform_type="$1"
