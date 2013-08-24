@@ -10,7 +10,7 @@ function usage()
 			mint: Sony Xperia T (LT30p)
 			yuga: Sony Xperia Z (C6603)
 			pollux_windy: Sony Xperia Tablet Z (SGP311)
-            odin: Sony Xperia ZL (C6503)
+			odin: Sony Xperia ZL (C6503)
 
 	release type: What type of build indicates how it is packaged [available: debug]
 			debug: Builds and packs the binary to be flashed with fastboot
